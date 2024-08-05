@@ -4,91 +4,89 @@ import requests
 from io import StringIO
 
 # Function to load data from GitHub
-def load_data_from_github(url):
-    response = requests.get(url)
+def fetch_data_from_github(file_url):
+    response = requests.get(file_url)
     if response.status_code == 200:
-        txt_data = StringIO(response.text)
-        df = pd.read_csv(txt_data, sep=",")
-        return df
+        data_as_string = StringIO(response.text)
+        dataframe = pd.read_csv(data_as_string, sep=",")
+        return dataframe
     else:
-        raise Exception(f"Failed to load data from {url}")
+        raise Exception(f"Failed to load data from {file_url}")
 
 # URLs to the data files in the GitHub repository
-etfs_url = 'https://raw.githubusercontent.com/rosswylie/4375FinalProject/main/archive/ETFs/aadr.us.txt'
-stocks_url = 'https://raw.githubusercontent.com/rosswylie/4375FinalProject/main/archive/Stocks/aapl.us.txt'
+etf_data_url = 'https://raw.githubusercontent.com/rosswylie/4375FinalProject/main/archive/ETFs/aadr.us.txt'
+stock_data_url = 'https://raw.githubusercontent.com/rosswylie/4375FinalProject/main/archive/Stocks/aapl.us.txt'
 
 # Load the data
-df_etf = load_data_from_github(etfs_url)
-df_stock = load_data_from_github(stocks_url)
+etf_dataframe = fetch_data_from_github(etf_data_url)
+stock_dataframe = fetch_data_from_github(stock_data_url)
 
 # Display the data
-print(df_stock.head())
+print(stock_dataframe.head())
 
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
 # Normalize the data
-scaler = MinMaxScaler(feature_range=(0, 1))
-scaled_data = scaler.fit_transform(df_stock['Close'].values.reshape(-1, 1))
+data_scaler = MinMaxScaler(feature_range=(0, 1))
+normalized_data = data_scaler.fit_transform(stock_dataframe['Close'].values.reshape(-1, 1))
 
 # Create sequences
-def create_sequences(data, seq_length):
-    sequences = []
-    labels = []
-    for i in range(len(data) - seq_length):
-        sequences.append(data[i:i+seq_length])
-        labels.append(data[i+seq_length])
-    return np.array(sequences), np.array(labels)
+def generate_sequences(data_array, sequence_length):
+    sequence_list = []
+    label_list = []
+    for index in range(len(data_array) - sequence_length):
+        sequence_list.append(data_array[index:index+sequence_length])
+        label_list.append(data_array[index+sequence_length])
+    return np.array(sequence_list), np.array(label_list)
 
-seq_length = 60  # Example sequence length
-X, y = create_sequences(scaled_data, seq_length)
+sequence_length = 60  # Example sequence length
+sequences_X, labels_y = generate_sequences(normalized_data, sequence_length)
 
 # Split into training and test sets
-split = int(0.8 * len(X))
-X_train, X_test = X[:split], X[split:]
-y_train, y_test = y[:split], y[split:]
+split_index = int(0.8 * len(sequences_X))
+training_X, testing_X = sequences_X[:split_index], sequences_X[split_index:]
+training_y, testing_y = labels_y[:split_index], labels_y[split_index:]
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 
-model = Sequential()
-model.add(LSTM(50, return_sequences=True, input_shape=(seq_length, 1)))
-model.add(Dropout(0.2))
-model.add(LSTM(50, return_sequences=False))
-model.add(Dropout(0.2))
-model.add(Dense(25))
-model.add(Dense(1))
+# Build and compile the model
+lstm_model = Sequential()
+lstm_model.add(LSTM(50, return_sequences=True, input_shape=(sequence_length, 1)))
+lstm_model.add(Dropout(0.2))
+lstm_model.add(LSTM(50, return_sequences=False))
+lstm_model.add(Dropout(0.2))
+lstm_model.add(Dense(25))
+lstm_model.add(Dense(1))
 
-model.compile(optimizer='adam', loss='mean_squared_error')
-model.summary()
+lstm_model.compile(optimizer='adam', loss='mean_squared_error')
+lstm_model.summary()
 
 # Train the model
-history = model.fit(X_train, y_train, batch_size=1, epochs=1)
+training_history = lstm_model.fit(training_X, training_y, batch_size=1, epochs=1)
 
 # Evaluate the model
-loss = model.evaluate(X_test, y_test)
-print(f'Test Loss: {loss}')
+model_loss = lstm_model.evaluate(testing_X, testing_y)
+print(f'Test Loss: {model_loss}')
 
 # Make predictions
-predictions = model.predict(X_test)
-predictions = scaler.inverse_transform(predictions)
+forecast_predictions = lstm_model.predict(testing_X)
+forecast_predictions = data_scaler.inverse_transform(forecast_predictions)
 
 # Plot the results
 import matplotlib.pyplot as plt
 
-train = df_stock[:split + seq_length]
-valid = df_stock[split + seq_length:]
-valid['Predictions'] = predictions
+train_data = stock_dataframe[:split_index + sequence_length]
+validation_data = stock_dataframe[split_index + sequence_length:]
+validation_data['Predicted'] = forecast_predictions
 
 plt.figure(figsize=(16, 8))
 plt.title('Stock Price Prediction')
 plt.xlabel('Date')
 plt.ylabel('Close Price USD')
-plt.plot(train['Close'])
-plt.plot(valid[['Close', 'Predictions']])
-plt.legend(['Train', 'Val', 'Predictions'], loc='lower right')
+plt.plot(train_data['Close'])
+plt.plot(validation_data[['Close', 'Predicted']])
+plt.legend(['Train', 'Validation', 'Predicted'], loc='lower right')
 plt.show()
-
-
-
